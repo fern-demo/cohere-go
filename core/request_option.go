@@ -27,6 +27,13 @@ type RequestOptions struct {
 	MaxBufSize      int
 	Token           string
 	ClientName      *string
+
+	// NoAuth records that the caller explicitly asked for no authentication, e.g. by passing
+	// option.WithToken(""). It distinguishes an intentionally empty token from an unset one,
+	// which a bare string cannot: both are "".
+	//
+	// FERN: hand-maintained. This file is listed in .fernignore.
+	NoAuth bool
 }
 
 // NewRequestOptions returns a new *RequestOptions value.
@@ -49,7 +56,9 @@ func NewRequestOptions(opts ...RequestOption) *RequestOptions {
 // for the request(s).
 func (r *RequestOptions) ToHeader() http.Header {
 	header := r.cloneHeader()
-	if r.Token != "" {
+	// FERN: hand-maintained. NoAuth suppresses the header even though NewClient will have
+	// re-populated Token from CO_API_KEY. See .fernignore.
+	if !r.NoAuth && r.Token != "" {
 		header.Set("Authorization", "Bearer "+r.Token)
 	}
 	if r.ClientName != nil {
@@ -137,6 +146,11 @@ type TokenOption struct {
 
 func (t *TokenOption) applyRequestOptions(opts *RequestOptions) {
 	opts.Token = t.Token
+	// FERN: hand-maintained. An explicitly empty token means "send no Authorization header",
+	// which is otherwise indistinguishable from never calling WithToken at all. See .fernignore.
+	if t.Token == "" {
+		opts.NoAuth = true
+	}
 }
 
 // ClientNameOption implements the RequestOption interface.

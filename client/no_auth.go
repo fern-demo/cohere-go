@@ -1,7 +1,6 @@
 package client
 
 import (
-	core "github.com/cohere-ai/cohere-go/v2/core"
 	option "github.com/cohere-ai/cohere-go/v2/option"
 )
 
@@ -14,20 +13,9 @@ import (
 //		option.WithBaseURL("https://my-proxy.example.com"),
 //	)
 //
-// A custom HTTP client is preserved rather than replaced: its requests have the header removed.
-//
-//	co := client.NewClientWithoutAuth(
-//		option.WithBaseURL("https://my-proxy.example.com"),
-//		option.WithHTTPClient(myClient),
-//	)
-//
-// Option order does not matter, and unlike option.WithToken(""), the CO_API_KEY environment
-// variable cannot reintroduce the header.
+// It is equivalent to passing option.WithToken("") and exists so the intent is explicit at the
+// call site. The CO_API_KEY environment variable cannot reintroduce the header either way.
 func NewClientWithoutAuth(opts ...option.RequestOption) *Client {
-	// Resolve the caller's options first so that any custom HTTP client is wrapped rather than
-	// overwritten, then apply the wrapper last so no option ordering can undo it.
-	resolved := core.NewRequestOptions(opts...)
-	return NewClient(
-		append(opts, option.WithHTTPClient(core.NoAuthClient(resolved.HTTPClient)))...,
-	)
+	// Applied last so no caller-supplied token can override it.
+	return NewClient(append(opts, option.WithToken(""))...)
 }
