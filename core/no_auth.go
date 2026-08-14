@@ -4,32 +4,31 @@ import (
 	http "net/http"
 )
 
-// NoAuthOption implements the RequestOption interface, and removes the
-// 'Authorization' header from every request issued by the client.
+// NoAuthClient returns an HTTPClient that removes the 'Authorization' header from every request
+// before delegating to client.
 //
-// Use option.WithoutToken() to construct this option.
-type NoAuthOption struct{}
-
-func (n *NoAuthOption) applyRequestOptions(opts *RequestOptions) {
-	opts.Token = ""
-	if _, ok := opts.HTTPClient.(*noAuthHTTPClient); ok {
-		return
+// The header is stripped at request time rather than by leaving the token empty, because
+// client.NewClient re-populates an empty token from the CO_API_KEY environment variable. A nil
+// client delegates to http.DefaultClient, matching the generated caller's own default.
+//
+// Wrapping is idempotent: passing an already-wrapped client returns it unchanged.
+//
+// Use client.NewClientWithoutAuth rather than calling this directly.
+func NoAuthClient(client HTTPClient) HTTPClient {
+	if _, ok := client.(*noAuthHTTPClient); ok {
+		return client
 	}
-	opts.HTTPClient = &noAuthHTTPClient{delegate: opts.HTTPClient}
+	if client == nil {
+		client = http.DefaultClient
+	}
+	return &noAuthHTTPClient{delegate: client}
 }
 
-// noAuthHTTPClient strips the 'Authorization' header before delegating the request.
-//
-// The header is removed at request time (rather than by leaving the token empty) so that the
-// CO_API_KEY environment variable, which the generated clients fall back to, cannot reintroduce it.
 type noAuthHTTPClient struct {
 	delegate HTTPClient
 }
 
 func (c *noAuthHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	req.Header.Del("Authorization")
-	if c.delegate == nil {
-		return http.DefaultClient.Do(req)
-	}
 	return c.delegate.Do(req)
 }
