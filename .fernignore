@@ -8,3 +8,4 @@ client/aws.go
 go.mod
 go.sum
 core/request_option.go
+internal/http.go

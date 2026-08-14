@@ -13,6 +13,17 @@ type RequestOption interface {
 	applyRequestOptions(*RequestOptions)
 }
 
+// NoAuthHeaderMarker is the placeholder value RequestOptions.ToHeader writes for an
+// 'Authorization' header that must be suppressed. internal.MergeHeaders removes it, so it is
+// never sent.
+//
+// It deliberately contains a NUL byte, which net/http rejects as an invalid header value. If a
+// future code path ever bypasses MergeHeaders, the request fails loudly with an obviously
+// traceable value rather than silently sending a wrong or missing credential.
+//
+// FERN: hand-maintained. This file is listed in .fernignore.
+const NoAuthHeaderMarker = "\x00fern-no-auth"
+
 // RequestOptions defines all of the possible request options.
 //
 // This type is primarily used by the generated code and is not meant
@@ -56,9 +67,14 @@ func NewRequestOptions(opts ...RequestOption) *RequestOptions {
 // for the request(s).
 func (r *RequestOptions) ToHeader() http.Header {
 	header := r.cloneHeader()
-	// FERN: hand-maintained. NoAuth suppresses the header even though NewClient will have
-	// re-populated Token from CO_API_KEY. See .fernignore.
-	if !r.NoAuth && r.Token != "" {
+	// FERN: hand-maintained. NoAuth emits a marker rather than simply omitting the header,
+	// because request-scoped options are merged on top of client-scoped ones and an omission
+	// cannot remove a header the client already set. internal.MergeHeaders deletes the marker,
+	// from either side of the merge, and is the single chokepoint every request path goes
+	// through. See .fernignore.
+	if r.NoAuth {
+		header.Set("Authorization", NoAuthHeaderMarker)
+	} else if r.Token != "" {
 		header.Set("Authorization", "Bearer "+r.Token)
 	}
 	if r.ClientName != nil {
