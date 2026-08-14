@@ -41,9 +41,26 @@ func TestWithoutTokenOmitsAuthorizationHeader(t *testing.T) {
 	require.Empty(t, chat(t, option.WithToken("some-token"), option.WithoutToken()).Get("Authorization"))
 }
 
-func TestEmptyTokenOmitsAuthorizationHeader(t *testing.T) {
+// TestEmptyTokenOmitsAuthorizationHeaderWhenEnvironmentIsUnset pins the behavior of
+// WithToken("") only for the case where CO_API_KEY is also empty. The t.Setenv call is what makes
+// the assertion hold, so it is deliberate rather than incidental: see the test below for what
+// WithToken("") does when the environment variable is actually set.
+func TestEmptyTokenOmitsAuthorizationHeaderWhenEnvironmentIsUnset(t *testing.T) {
 	t.Setenv("CO_API_KEY", "")
 	require.Empty(t, chat(t, option.WithToken("")).Get("Authorization"))
+}
+
+// TestEmptyTokenFallsBackToEnvironmentVariable documents that WithToken("") does not disable
+// authentication in this SDK: client.NewClient replaces an empty token with CO_API_KEY, so the
+// header is still sent. WithoutToken() is the only way to send no header at all.
+//
+// NOTE: this differs from the Python, Java and TypeScript SDKs, where an empty token omits the
+// header regardless of the environment. Aligning the four is a separate change, since honoring
+// WithToken("") here requires the generated client to distinguish "unset" from "explicitly empty".
+func TestEmptyTokenFallsBackToEnvironmentVariable(t *testing.T) {
+	t.Setenv("CO_API_KEY", "env-token")
+	require.Equal(t, "Bearer env-token", chat(t, option.WithToken("")).Get("Authorization"))
+	require.Empty(t, chat(t, option.WithoutToken()).Get("Authorization"))
 }
 
 func TestTokenIsSentWhenProvided(t *testing.T) {
