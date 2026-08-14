@@ -28,20 +28,23 @@ func (r *recordingHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-func chatWith(t *testing.T, co *client.Client, recorder *recordingHTTPClient) http.Header {
-	t.Helper()
-	_, err := co.Chat(context.TODO(), &cohere.ChatRequest{Message: "hi"})
-	require.NoError(t, err)
-	require.Equal(t, 1, recorder.calls, "the caller's HTTP client must receive the request")
-	return recorder.header
-}
-
-// chat issues a request through client.NewClient with a recording HTTP client installed first.
-func chat(t *testing.T, opts ...option.RequestOption) http.Header {
+// chatCapturing issues a request through client.NewClient with a recording HTTP client installed
+// first, and returns the recorder so callers can assert on both the header and whether the
+// caller's client was actually used.
+func chatCapturing(t *testing.T, opts ...option.RequestOption) *recordingHTTPClient {
 	t.Helper()
 	recorder := &recordingHTTPClient{}
 	co := client.NewClient(append([]option.RequestOption{option.WithHTTPClient(recorder)}, opts...)...)
-	return chatWith(t, co, recorder)
+	_, err := co.Chat(context.TODO(), &cohere.ChatRequest{Message: "hi"})
+	require.NoError(t, err)
+	return recorder
+}
+
+func chat(t *testing.T, opts ...option.RequestOption) http.Header {
+	t.Helper()
+	recorder := chatCapturing(t, opts...)
+	require.Equal(t, 1, recorder.calls, "the caller's HTTP client must receive the request")
+	return recorder.header
 }
 
 // An explicitly empty token means "send no Authorization header", and is distinct from never
@@ -67,32 +70,16 @@ func TestEmptyTokenOmitsAuthorizationHeaderWhenEnvironmentIsUnset(t *testing.T) 
 func TestEmptyTokenIsOrderIndependent(t *testing.T) {
 	t.Setenv("CO_API_KEY", "env-token")
 	require.Empty(t, chat(t, option.WithToken("real-token"), option.WithToken("")).Get("Authorization"))
+	require.Empty(t, chat(t, option.WithToken(""), option.WithToken("real-token")).Get("Authorization"))
 }
 
-func TestNewClientWithoutAuthOmitsAuthorizationHeader(t *testing.T) {
+// Suppressing auth must not swap out a caller's HTTP client, which would silently discard their
+// proxy, mTLS config, timeouts and instrumentation.
+func TestEmptyTokenPreservesCustomHTTPClient(t *testing.T) {
 	t.Setenv("CO_API_KEY", "env-token")
-	recorder := &recordingHTTPClient{}
-	co := client.NewClientWithoutAuth(option.WithHTTPClient(recorder))
-	require.Empty(t, chatWith(t, co, recorder).Get("Authorization"))
-}
-
-// The constructor suppresses auth even if a token is supplied alongside it.
-func TestNewClientWithoutAuthOmitsAuthorizationHeaderEvenWithAToken(t *testing.T) {
-	recorder := &recordingHTTPClient{}
-	co := client.NewClientWithoutAuth(
-		option.WithHTTPClient(recorder),
-		option.WithToken("some-token"),
-	)
-	require.Empty(t, chatWith(t, co, recorder).Get("Authorization"))
-}
-
-// A custom HTTP client must still be the one issuing requests: suppressing auth must not swap out
-// a caller's proxy, mTLS config, timeouts or instrumentation. chatWith asserts recorder.calls.
-func TestNewClientWithoutAuthPreservesCustomHTTPClient(t *testing.T) {
-	t.Setenv("CO_API_KEY", "env-token")
-	recorder := &recordingHTTPClient{}
-	co := client.NewClientWithoutAuth(option.WithHTTPClient(recorder))
-	chatWith(t, co, recorder)
+	recorder := chatCapturing(t, option.WithToken(""))
+	require.Equal(t, 1, recorder.calls, "the caller's HTTP client must receive the request")
+	require.Empty(t, recorder.header.Get("Authorization"))
 }
 
 func TestTokenIsSentWhenProvided(t *testing.T) {
@@ -102,7 +89,7 @@ func TestTokenIsSentWhenProvided(t *testing.T) {
 // Per-request auth suppression is NOT supported: the client-level Authorization header is already
 // in place by the time request options are merged, and MergeHeaders cannot clear it. Pinned here
 // so the limitation is explicit rather than a surprise. Build a separate client with
-// NewClientWithoutAuth instead.
+// option.WithToken("") instead.
 func TestPerRequestEmptyTokenDoesNotSuppressClientLevelAuth(t *testing.T) {
 	t.Setenv("CO_API_KEY", "env-token")
 	recorder := &recordingHTTPClient{}

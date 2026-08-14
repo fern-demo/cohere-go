@@ -7,5 +7,4 @@ tests/
 client/aws.go
 go.mod
 go.sum
-client/no_auth.go
 core/request_option.go
